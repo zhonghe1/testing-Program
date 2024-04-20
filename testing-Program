@@ -1,0 +1,126 @@
+import tkinter as tk
+import os
+import subprocess
+import threading
+import time
+
+class GUIApp:
+    def __init__(self, root, ini_file):
+        self.root = root
+        self.ini_file = ini_file
+        self.sn_content = self.read_sn_txt()  # 读取初始的 SN.TXT 内容
+        self.status_labels = []
+        # 添加一个标志来跟踪扫描是否已经启动
+        # self.scan_started = False
+        self.init_ui()
+        self.update_status()
+
+    def init_ui(self):
+        # 添加大表头
+        self.sn_label = tk.Label(self.root, text=self.sn_content, font=("Helvetica", 20, "bold"), fg="red")
+        self.sn_label.pack(pady=5)
+
+        # 添加边界
+        self.root.configure(padx=20, pady=20)
+
+        # 添加表格内容
+        self.table_frame = tk.Frame(self.root, bd=1, relief=tk.RAISED)
+        self.table_frame.pack(expand=True, fill=tk.BOTH)
+
+        self.config_items = self.read_config()
+        for idx, (item, _) in enumerate(self.config_items, start=1):
+            label_num = tk.Label(self.table_frame, text=f"{idx}", font=("Helvetica", 15), bd=1, relief=tk.SOLID, anchor='center')
+            label_num.grid(row=idx, column=0, padx=0, pady=0, sticky="nsew")
+            label_name = tk.Label(self.table_frame, text=item, font=("Helvetica", 15), bd=1, relief=tk.SOLID, anchor='center')
+            label_name.grid(row=idx, column=1, padx=0, pady=0, sticky="nsew")
+            label_status = tk.Label(self.table_frame, text="", font=("Helvetica", 15), bd=1, relief=tk.SOLID, anchor='center')
+            label_status.grid(row=idx, column=2, padx=0, pady=0, sticky="nsew")
+            self.status_labels.append((item, label_status))
+
+        # 添加表头
+        label_num = tk.Label(self.table_frame, text="NO", bg="light blue", font=("Helvetica", 20, "bold"), bd=1, relief=tk.SOLID)
+        label_num.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
+        label_name = tk.Label(self.table_frame, text="Test-Item",bg="light blue", font=("Helvetica", 20, "bold"), bd=1, relief=tk.SOLID, anchor='center', width=15)
+        label_name.grid(row=0, column=1, padx=0, pady=0, sticky="nsew")
+        label_status = tk.Label(self.table_frame, text="Result",bg="light blue", font=("Helvetica", 20, "bold"), bd=1, relief=tk.SOLID, width=7, anchor='center')
+        label_status.grid(row=0, column=2, padx=0, pady=0, sticky="nsew")
+
+        # 使用网格布局管理器使单元格之间没有间隙
+        for i in range(3):
+            self.table_frame.grid_columnconfigure(i, weight=1)
+        for i in range(len(self.config_items) + 1):
+            self.table_frame.grid_rowconfigure(i, weight=1)
+
+    def read_config(self):
+        config_items = []
+        current_section = None
+        with open(self.ini_file, 'r') as file:
+            for line in file:
+                line = line.strip()
+                # 检查是否为一个段的开始
+                if line.startswith("[") and line.endswith("]"):
+                    current_section = line[1:-1]  # 去掉方括号，获取段名
+                    continue  # 跳过段名的处理，进入下一行
+                    # 如果当前段是 'testitem' 并且该行包含 '='
+                if current_section == "testitem" and "=" in line:
+                    item, value = line.split("=", 1)  # 使用 split 分离键和值，并限制分割次数为1
+                    config_items.append((item.strip(), value.strip()))  # 添加到列表中，并去除两端的空白字符
+            # 对配置项按值进行排序（假设值是可以转换为整数的）
+            # 如果值不是数字，则放到列表末尾
+            config_items.sort(key=lambda x: int(x[1]) if x[1].isdigit() else float('inf'))
+            return config_items
+
+    def read_sn_txt(self):
+        if os.path.exists("MO/SN.DAT"):
+            if os.path.exists("MO/wait.txt"):
+                os.remove("MO/wait.txt")
+            else:
+                with open("MO/SN.DAT", 'r') as file:
+                    sn_content = file.readline().strip()
+                    return f"{sn_content[:7]} Program-testing"
+        else:
+            if not os.path.exists("MO/wait.txt") and not os.path.exists("MO/SN.DAT"):
+                with open('MO/wait.txt',
+                          'w') as f:
+                    f.write('')
+                self.run_scan_thread = threading.Thread(target=self.run_scan)
+                self.run_scan_thread.start()
+            return "Waiting for SN Scan"
+
+    def run_scan(self):
+        mo_folder = "MO"  # 修改为你的 MO 文件夹路径
+        # process = subprocess.Popen(["scan.bat"], cwd=mo_folder, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(["scan.bat"], cwd=mo_folder, shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        out, err = process.communicate()
+        out, err = process.communicate()
+
+    def update_status(self):
+        # 如果 SN.TXT 内容变更了，更新大表头的内容
+        new_sn_content = self.read_sn_txt()
+        if new_sn_content != self.sn_content:
+            self.sn_content = new_sn_content
+            self.sn_label.config(text=self.sn_content)
+
+        for item, label_status in self.status_labels:
+            pass_file = f"result/{item}.pass.txt"
+            fail_file = f"result/{item}.fail.txt"
+
+            if os.path.exists(pass_file):
+                label_status.config(text="PASS", fg="green", bg="light green")
+            elif os.path.exists(fail_file):
+                label_status.config(text="FAIL", fg="red", bg="light coral")
+            else:
+                label_status.config(text="", fg="black", bg="white")
+
+        self.root.after(1000, self.update_status)
+
+    def run(self):
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("SMT TEST Program")
+    root.geometry("+20+20")  # 将窗口放置在屏幕左上角
+    app = GUIApp(root, "config_item.ini")
+    # root.attributes('-topmost', True)
+    app.run()
